@@ -4,13 +4,13 @@ import dayjs from 'dayjs';
 import { Knex, QueryBuilder } from 'knex';
 import _ from 'lodash';
 import { ValueOf } from 'type-fest';
+import { ItemType } from '~/constants/item-type';
 import { StorySortType, FetchUrls } from '~/constants/story-sort-type';
 import logger from '~/logging/logger';
 import { CommentService } from '~/services/comment.service';
 import { ItemPersistService } from '~/services/item-persist.service';
 import { StoryService } from '~/services/story.service';
 import { HackerNewsUser, UserService } from '~/services/user.service';
-import { ItemType } from '~/types/db';
 import db from '~/utils/db';
 import { allSettledPartitioned } from '~/utils/promise';
 import pLimit from '~/utils/promise-limit';
@@ -55,13 +55,9 @@ axiosRetry(axiosClient, {
 const limit = pLimit(250);
 const limitComments = pLimit(1250);
 
-async function fetchTopStories(): Promise<number[]> {
-  return await axiosClient.get('/topstories.json').then(({ data }) => data);
-}
-
 async function fetchAllStoryIds() {
   const storyIds = await Promise.all(Object.values(FetchUrls).map(fetchStoryIds));
-  return _.zipObject(Object.keys(FetchUrls), storyIds);
+  return _.zipObject(Object.keys(FetchUrls), storyIds) as unknown as Record<StorySortType, number[]>;
 }
 
 async function fetchStoryIds(storyFetchUrl: ValueOf<typeof FetchUrls>): Promise<number> {
@@ -74,44 +70,6 @@ async function fetchItemById(itemId: number) {
 
 async function fetchUserById(userId: string) {
   return await axiosClient.get(`/user/${userId}.json`).then(({ data }) => data);
-}
-
-async function fetchItemRecursively(storyId: number): Promise<any> {
-  const parent = await fetchItemById(storyId);
-  const children: number[] = parent.kids ?? [];
-
-  if (children.length === 0) {
-    return parent;
-  }
-
-  const [fulfilled, rejected] = await allSettledPartitioned(
-    children.map(
-      (itemId) => limitComments(() => fetchItemRecursively(itemId)),
-    ),
-  );
-
-  if (rejected.length > 0) {
-    logger.warn(rejected, `Failed to fetch some comments for story ${storyId}`);
-  }
-
-  return {
-    ...parent,
-    kids: fulfilled,
-  };
-}
-
-async function fetchItemsRecursivelyTwo(storyId: number, promises: Promise<any>[]): Promise<void> {
-  promises.push(limitComments(() => fetchItemById(storyId)));
-  const parent = await promises.at(-1);
-  const children: number[] = parent.kids ?? [];
-
-  if (children.length === 0) {
-    return;
-  }
-
-  await Promise.all(children.map(
-    (child) => fetchItemsRecursivelyTwo(child, promises),
-  ));
 }
 
 async function fetchItemsRecursivelyThree(storyId: number): Promise<any> {
@@ -129,39 +87,6 @@ async function fetchItemsRecursivelyThree(storyId: number): Promise<any> {
     ...parent,
     kids: children,
   };
-}
-
-async function fetchItemsRecursivelyFour(storyId: number): Promise<any> {
-  const parent = await limitComments(() => fetchItemById(storyId));
-  const childrenIds: number[] = parent.kids ?? [];
-
-  await StoryService.upsertStories(db, [{
-    hnId: parent.id,
-    title: parent.title,
-    url: parent.url,
-    dead: parent.dead ?? false,
-    score: parent.score ?? 0,
-    descendants: parent.descendants ?? 0,
-    userId: UserService.userByAlias(db, parent.by),
-  }]);
-
-  if (childrenIds.length === 0) {
-    return parent;
-  }
-
-  const children = await Promise.all(childrenIds.map(
-    (childId) => fetchItemsRecursivelyFour(childId),
-  ));
-
-  const comments = children.map((comment) => ({
-    hn_id: comment.id,
-    text: comment.text,
-    parent_id: parent.id,
-    user_id: UserService.userByAlias(db, comment.by),
-    time: dayjs.utc(comment.time * 1000),
-  }));
-
-  await CommentService.upsertComments(db, comments);
 }
 
 async function fetchStoriesById(storyIds: number[]) {
@@ -307,7 +232,7 @@ async function fetchStoriesWithCommentsById(storyIds: number[]) {
   };
 }
 
-async function getTimeUntilNextFetch(trx: Knex, type: 'top' | 'new' | 'best' | 'ask' | 'show' | 'job'): Promise<number> {
+async function getTimeUntilNextFetch(trx: Knex, type: StorySortType): Promise<number> {
   const lastSchedule = await trx('fetch_schedule')
     .select('created_at', 'finished_at')
     .where('type', type)
@@ -326,25 +251,7 @@ async function getTimeUntilNextFetch(trx: Knex, type: 'top' | 'new' | 'best' | '
   return Math.max(0, FETCH_INTERVAL_MINUTES - diff);
 }
 
-async function shouldExecuteNextSchedule(trx: Knex, type: ItemType) {
-  const lastSchedule = await trx('fetch_schedule')
-    .select('finished_at')
-    .where('type', type)
-    .orderBy('created_at', 'desc')
-    .first();
-
-  if (lastSchedule == null) {
-    return true;
-  }
-
-  if (lastSchedule.finishedAt == null) {
-    return dayjs().diff(dayjs(lastSchedule.createdAt), 'minute') > (FETCH_INTERVAL_MINUTES * 2);
-  }
-
-  return dayjs().diff(dayjs(lastSchedule.finishedAt), 'minute') > FETCH_INTERVAL_MINUTES;
-}
-
-async function insertFetchSchedule(trx: Knex, type: ItemType) {
+async function insertFetchSchedule(trx: Knex, type: StorySortType) {
   return trx('fetch_schedule').insert({
     type
   }).onConflict().ignore()
@@ -361,13 +268,8 @@ async function finishFetchSchedule(trx: Knex, type: ItemType, totalItems: number
 }
 
 export const ItemFetchService = {
-  fetchTopStories,
   fetchAllStoryIds,
-  fetchItemById,
-  fetchItemRecursively,
   fetchStoriesWithCommentsById,
-  fetchStoriesById,
-  shouldExecuteNextSchedule,
   getTimeUntilNextFetch,
   insertFetchSchedule,
   finishFetchSchedule

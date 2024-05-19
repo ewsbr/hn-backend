@@ -1,7 +1,5 @@
 import 'knex/types/tables';
 
-export type ItemType = 'top' | 'new' | 'best' | 'ask' | 'show' | 'job';
-
 interface AuditColumns {
   createdAt: Date;
   updatedAt: Date;

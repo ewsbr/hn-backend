@@ -14,7 +14,6 @@ function userByAlias(trx: Knex, username: string) {
 }
 
 function upsertUsers(trx: Knex, users: HackerNewsUser[]) {
-  console.log('upsertUsers', users.map(u => u.id));
   return trx('user').insert(users.map(user => ({
     username: user.id,
     created_at: dayjs.utc(user.created * 1000).toDate(),
