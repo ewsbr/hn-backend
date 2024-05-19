@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { StorySortType } from '~/constants/story-sort-type';
 import logger from '~/logging/logger';
 import { ItemFetchService } from '~/services/item-fetch.service';
 import { setTimeout } from 'timers/promises';
@@ -17,25 +18,27 @@ async function startStoryFetchLoop() {
   while (runningFetchLoop) {
     const then = Date.now();
 
-    const timeUntilFetch = await ItemFetchService.getTimeUntilNextFetch(db, 'top');
-    if (timeUntilFetch > 0) {
-      logger.info(`Fetching top stories in ${timeUntilFetch.toFixed(2)}m...`)
-      await setTimeout(STORY_FETCH_LOOP_DELAY);
-      continue;
+    for (const storyType of Object.values(StorySortType) as StorySortType[]) {
+      const timeUntilFetch = await ItemFetchService.getTimeUntilNextFetch(db, storyType);
+      if (timeUntilFetch > 0) {
+        logger.info(`Fetching ${storyType} stories in ${timeUntilFetch.toFixed(2)}m...`)
+        continue;
+      }
+
+      const ids = await ItemFetchService.fetchStoryIds(storyType);
+      await db.transaction(async trx => {
+        await ItemFetchService.insertFetchSchedule(trx, storyType);
+        await TopStoriesService.insertStories(trx, storyType, ids);
+      });
+
+      logger.info(`Fetching ${ids.length} ${storyType} stories...`);
+      const { stories, totalItems } = await ItemFetchService.fetchStoriesWithCommentsById(ids);
+
+      logger.info(stories.map(s => s.title), `Fetched ${stories.length} ${storyType} stories and ${totalItems} items in ${Date.now() - then}ms`);
+      await fs.writeFile(`${storyType}.json`, JSON.stringify(stories, null, 2))
+
+      await ItemFetchService.finishFetchSchedule(db, storyType, totalItems)
     }
-
-    await ItemFetchService.insertFetchSchedule(db, 'top');
-
-    const topStoryIds = await ItemFetchService.fetchTopStories().then(stories => stories.slice(0, 500));
-    await TopStoriesService.insertStories(db, 'top', topStoryIds);
-
-    logger.info(`Fetching ${topStoryIds.length} stories...`);
-    const { stories, totalItems } = await ItemFetchService.fetchStoriesWithCommentsById(topStoryIds);
-
-    logger.info(stories.map(s => s.title), `Fetched ${stories.length} stories and ${totalItems} items in ${Date.now() - then}ms`);
-    await fs.writeFile('data.json', JSON.stringify(stories, null, 2))
-
-    await ItemFetchService.finishFetchSchedule(db, 'top', totalItems)
 
     await setTimeout(STORY_FETCH_LOOP_DELAY);
   }

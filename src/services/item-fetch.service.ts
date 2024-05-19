@@ -1,15 +1,10 @@
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import dayjs from 'dayjs';
-import { Knex, QueryBuilder } from 'knex';
-import _ from 'lodash';
-import { ValueOf } from 'type-fest';
-import { ItemType } from '~/constants/item-type';
-import { StorySortType, FetchUrls } from '~/constants/story-sort-type';
+import { Knex } from 'knex';
+import { FetchUrls, StorySortType } from '~/constants/story-sort-type';
 import logger from '~/logging/logger';
-import { CommentService } from '~/services/comment.service';
 import { ItemPersistService } from '~/services/item-persist.service';
-import { StoryService } from '~/services/story.service';
 import { HackerNewsUser, UserService } from '~/services/user.service';
 import db from '~/utils/db';
 import { allSettledPartitioned } from '~/utils/promise';
@@ -55,13 +50,8 @@ axiosRetry(axiosClient, {
 const limit = pLimit(250);
 const limitComments = pLimit(1250);
 
-async function fetchAllStoryIds() {
-  const storyIds = await Promise.all(Object.values(FetchUrls).map(fetchStoryIds));
-  return _.zipObject(Object.keys(FetchUrls), storyIds) as unknown as Record<StorySortType, number[]>;
-}
-
-async function fetchStoryIds(storyFetchUrl: ValueOf<typeof FetchUrls>): Promise<number> {
-  return await axiosClient.get(storyFetchUrl).then(({ data }) => data);
+async function fetchStoryIds(storyFetchUrl: keyof typeof FetchUrls): Promise<number[]> {
+  return await axiosClient.get(FetchUrls[storyFetchUrl]).then(({ data }) => data);
 }
 
 async function fetchItemById(itemId: number) {
@@ -87,84 +77,6 @@ async function fetchItemsRecursivelyThree(storyId: number): Promise<any> {
     ...parent,
     kids: children,
   };
-}
-
-async function fetchStoriesById(storyIds: number[]) {
-  const [fulfilled, rejected] = await allSettledPartitioned(
-    storyIds.map(
-      (storyId) => limit(() => fetchItemById(storyId)),
-    ),
-  );
-
-  if (rejected.length > 0) {
-    logger.warn(rejected, 'Failed to fetch some stories');
-  }
-
-  return fulfilled;
-}
-
-async function persistItems(
-  items: HackerNewsItemWithKids[],
-  userMap: Map<string, number> = new Map(),
-  parentMap: Map<number, number> = new Map(),
-  storyIdMap: Map<number, number> = new Map(),
-  commentIdMap: Map<number, number> = new Map(),
-) {
-  const groupedItems = _.groupBy(items, 'type');
-  for (const [type, items] of Object.entries(groupedItems)) {
-    logger.info(`Persisting ${items.length} items of type ${type}`);
-
-    if (type === 'story') {
-      const stories = await StoryService.upsertStories(db, items.map((item) => ({
-        hn_id: item.id,
-        title: item.title,
-        url: item.url,
-        dead: item.dead ?? false,
-        score: item.score ?? 0,
-        descendants: item.descendants ?? 0,
-        user_id: userMap.get(item.by),
-        created_at: dayjs.utc(item.time * 1000),
-        updated_at: db.fn.now(),
-        deleted_at: item.deleted ? db.fn.now() : null,
-      })));
-      stories.forEach((story) => storyIdMap.set(story.hnId, story.id));
-    } else if (type === 'comment') {
-      const comments = await CommentService.upsertComments(db, items.map((item, i) => {
-        let storyId: QueryBuilder | number | undefined = storyIdMap.get(parentMap.get(item.id)!);
-        if (storyId == null) {
-          storyId = db.select('id').from('story').where('hn_id', parentMap.get(item.id)!).first();
-          logger.warn([...storyIdMap.entries()], `Story ID not found for comment ${item.id}, parent ${item.parent}, story ${parentMap.get(item.id)}}`);
-        }
-
-        return {
-          hn_id: item.id,
-          text: item.text ?? undefined,
-          parent_id: commentIdMap.get(item.parent!) ?? null,
-          story_id: storyId,
-          user_id: userMap.get(item.by),
-          created_at: dayjs.utc(item.time * 1000),
-          updated_at: db.fn.now(),
-          deleted_at: item.deleted ? db.fn.now() : null,
-          order: i,
-        }
-      }));
-      comments.forEach((comment) => commentIdMap.set(comment.hnId, comment.id));
-    }
-
-    const validItems = items.filter((item) => item.deleted !== true && item.by != null);
-    const nextKids = validItems
-      .filter(i => i.kids?.length > 0)
-      .map(i => i.kids)
-      .flat();
-
-    if (nextKids.length === 0) continue;
-    validItems
-      .filter(i => i.kids?.length > 0)
-      .forEach((item) => {
-        item.kids.forEach((kid) => parentMap.set(kid.id, parentMap.get(item.id) ?? item.id));
-      });
-    await persistItems(nextKids, userMap, parentMap, storyIdMap, commentIdMap);
-  }
 }
 
 async function fetchUsers(userIds: string[]): Promise<HackerNewsUser[]> {
@@ -228,7 +140,7 @@ async function fetchStoriesWithCommentsById(storyIds: number[]) {
 
   return {
     stories: fulfilled,
-    totalItems
+    totalItems,
   };
 }
 
@@ -253,25 +165,25 @@ async function getTimeUntilNextFetch(trx: Knex, type: StorySortType): Promise<nu
 
 async function insertFetchSchedule(trx: Knex, type: StorySortType) {
   return trx('fetch_schedule').insert({
-    type
-  }).onConflict().ignore()
+    type,
+  }).onConflict().ignore();
 }
 
-async function finishFetchSchedule(trx: Knex, type: ItemType, totalItems: number) {
+async function finishFetchSchedule(trx: Knex, type: StorySortType, totalItems: number) {
   return trx('fetch_schedule')
     .where('type', type)
     .andWhere('finished_at', null)
     .update({
-      total_items: totalItems,
-      finished_at: db.fn.now()
+      totalItems: totalItems,
+      finishedAt: db.fn.now(),
     });
 }
 
 export const ItemFetchService = {
-  fetchAllStoryIds,
+  fetchStoryIds,
   fetchStoriesWithCommentsById,
   getTimeUntilNextFetch,
   insertFetchSchedule,
-  finishFetchSchedule
+  finishFetchSchedule,
 };
 

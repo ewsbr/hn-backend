@@ -1,7 +1,7 @@
 import { Knex } from 'knex';
-import { ItemType } from '~/types/db';
+import { StorySortType } from '~/constants/story-sort-type';
 
-async function insertStories(trx: Knex, type: ItemType, items: number[]): Promise<void> {
+async function insertStories(trx: Knex, type: StorySortType, items: number[]): Promise<void> {
   await trx('top_story').where('type', type).del();
   await trx('top_story').insert(items.map((id, index) => ({ type, hn_id: id, order: index })));
 }
