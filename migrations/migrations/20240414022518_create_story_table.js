@@ -18,7 +18,7 @@ exports.up = function(knex) {
       .inTable('user')
       .index();
 
-    table.enum('story_type', ['story', 'job'], {
+    table.enum('story_type', ['story', 'job', 'poll'], {
       enumName: 'story_type_enum',
       useNative: true,
     }).notNullable().defaultTo('story');

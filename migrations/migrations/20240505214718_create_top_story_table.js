@@ -4,7 +4,8 @@
  */
 exports.up = function(knex) {
   return knex.schema.createTable('top_story', table => {
-    table.integer('hn_id').notNullable().primary()
+    table.specificType('id', 'INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
+    table.integer('hn_id').notNullable();
     table.enum('type', ['top', 'new', 'best', 'ask', 'show', 'job'], {
       enumName: 'top_story_type_enum',
       useNative: true,
@@ -20,6 +21,6 @@ exports.up = function(knex) {
  * @returns { Promise<void> }
  */
 exports.down = async function(knex) {
+  await knex.schema.dropTable('top_story');
   await knex.raw('DROP TYPE IF EXISTS top_story_type_enum');
-  return knex.schema.dropTable('top_story');
 };
