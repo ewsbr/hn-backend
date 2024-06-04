@@ -10,7 +10,7 @@ import db from '~/utils/db';
 import { allSettledPartitioned } from '~/utils/promise';
 import pLimit from '~/utils/promise-limit';
 
-const FETCH_INTERVAL_MINUTES = 15;
+const FETCH_INTERVAL_MINUTES = 30;
 
 export interface HackerNewsItem {
   id: number;
@@ -36,7 +36,7 @@ export interface HackerNewsItemWithKids extends Omit<HackerNewsItem, 'kids'> {
 
 const axiosClient = axios.create({
   baseURL: 'https://hacker-news.firebaseio.com/v0',
-  timeout: 2500,
+  timeout: 10000,
 });
 
 axiosRetry(axiosClient, {
@@ -48,7 +48,7 @@ axiosRetry(axiosClient, {
 });
 
 const limit = pLimit(250);
-const limitComments = pLimit(1250);
+const limitComments = pLimit(500);
 
 async function fetchStoryIds(storyFetchUrl: keyof typeof FetchUrls): Promise<number[]> {
   return await axiosClient.get(FetchUrls[storyFetchUrl]).then(({ data }) => data);
@@ -87,7 +87,7 @@ async function fetchUsers(userIds: string[]): Promise<HackerNewsUser[]> {
   );
 
   if (rejected.length > 0) {
-    logger.warn(rejected, 'Failed to fetch some users');
+    logger.warn(rejected.map(r => r.message), 'Failed to fetch some users');
   }
 
   return fulfilled;
@@ -122,11 +122,15 @@ async function fetchStoriesWithCommentsById(storyIds: number[]) {
   );
 
   if (rejected.length > 0) {
-    logger.warn(rejected, 'Failed to fetch some stories');
+    logger.warn(rejected.map(r => r.message), 'Failed to fetch some stories');
   }
 
   const users = await fetchUsers(extractUserIds(fulfilled));
   const usersWithIds = await UserService.upsertUsers(db, users);
+
+  if (usersWithIds.length !== users.length) {
+    throw new Error('Failed to upsert all users');
+  }
 
   const userMap = new Map<string, number>();
   usersWithIds.forEach((user) => userMap.set(user.username, user.id));

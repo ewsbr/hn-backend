@@ -16,8 +16,6 @@ async function startStoryFetchLoop() {
 
   runningFetchLoop = true;
   while (runningFetchLoop) {
-    const then = Date.now();
-
     for (const storyType of Object.values(StorySortType) as StorySortType[]) {
       const timeUntilFetch = await ItemFetchService.getTimeUntilNextFetch(db, storyType);
       if (timeUntilFetch > 0) {
@@ -25,19 +23,25 @@ async function startStoryFetchLoop() {
         continue;
       }
 
+      const then = Date.now();
+
       const ids = await ItemFetchService.fetchStoryIds(storyType);
       await db.transaction(async trx => {
         await ItemFetchService.insertFetchSchedule(trx, storyType);
         await TopStoriesService.insertStories(trx, storyType, ids);
       });
 
-      logger.info(`Fetching ${ids.length} ${storyType} stories...`);
-      const { stories, totalItems } = await ItemFetchService.fetchStoriesWithCommentsById(ids);
+      try {
+        logger.info(`Fetching ${ids.length} ${storyType} stories...`);
+        const { stories, totalItems } = await ItemFetchService.fetchStoriesWithCommentsById(ids);
 
-      logger.info(stories.map(s => s.title), `Fetched ${stories.length} ${storyType} stories and ${totalItems} items in ${Date.now() - then}ms`);
-      await fs.writeFile(`${storyType}.json`, JSON.stringify(stories, null, 2))
+        logger.info(stories.map(s => s.title), `Fetched ${stories.length} ${storyType} stories and ${totalItems} items in ${Date.now() - then}ms`);
+        await fs.writeFile(`${storyType}.json`, JSON.stringify(stories, null, 2))
 
-      await ItemFetchService.finishFetchSchedule(db, storyType, totalItems)
+        await ItemFetchService.finishFetchSchedule(db, storyType, totalItems)
+      } catch (err) {
+        logger.error(err, `Failed to fetch ${storyType} stories... Trying again later`);
+      }
     }
 
     await setTimeout(STORY_FETCH_LOOP_DELAY);

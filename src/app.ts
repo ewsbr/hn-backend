@@ -12,7 +12,7 @@ dayjs.extend(duration);
 
 const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
   await fastify.register(Cors, {
-    origin: false,
+    origin: '*',
   } satisfies FastifyCorsOptions);
 
   await fastify.register(import('fastify-print-routes'), {
