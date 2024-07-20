@@ -24,7 +24,7 @@ function upsertStories(trx: Knex, stories: Knex.DbRecordArr<Tables['story']>[]) 
 function getStoryByHnId(trx: Knex, hnId: number) {
   return trx('story')
     .innerJoin('user', 'user.id', 'story.userId')
-    .select('story.id', 'hnId', 'title', 'url', 'score', 'descendants', 'username AS by', 'story.createdAt AS time')
+    .select('story.id', 'hnId', 'title', 'url', 'score', 'text', 'descendants', 'username AS by', 'story.createdAt AS time')
     .where('hnId', hnId)
     .first();
 }

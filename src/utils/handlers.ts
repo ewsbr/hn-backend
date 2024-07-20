@@ -95,12 +95,14 @@ function notFoundHandler(req: FastifyRequest, reply: FastifyReply) {
 }
 
 const coercingAjv = new Ajv({
+  useDefaults: true,
   removeAdditional: false,
   coerceTypes: true,
   allErrors: true
 });
 
 const nonCoercingAjv = new Ajv({
+  useDefaults: true,
   removeAdditional: false,
   coerceTypes: false,
   allErrors: true

@@ -28,7 +28,7 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
         id: Type.Integer()
       }),
       querystring: Type.Object({
-        order_by: Type.Optional(Type.String({ enum: Object.values(CommentsSortOrder) })),
+        order_by: Type.String({ enum: Object.values(CommentsSortOrder), default: CommentsSortOrder.DEFAULT }),
         comment_id: Type.Optional(Type.Integer()),
         search: Type.Optional(Type.String()),
       })
