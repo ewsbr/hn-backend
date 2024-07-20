@@ -1,5 +1,8 @@
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { Knex } from 'knex';
+
+dayjs.extend(utc);
 
 export interface HackerNewsUser {
   id: string;

@@ -14,6 +14,6 @@ exports.up = function(knex) {
  */
 exports.down = function(knex) {
   return knex.schema.alterTable('story', table => {
-    table.dropColumn('text')
+    table.dropColumn('text');
   })
 };
