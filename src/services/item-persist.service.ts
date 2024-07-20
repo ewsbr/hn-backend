@@ -23,6 +23,7 @@ class ItemPersistService {
       hnId: item.id,
       title: item.title!,
       url: item.url!,
+      text: item.text,
       dead: item.dead ?? false,
       score: item.score ?? 0,
       descendants: item.descendants ?? 0,
