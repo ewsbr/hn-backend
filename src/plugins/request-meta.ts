@@ -17,6 +17,19 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
       },
     };
 
+    logger.info({
+      meta: {
+        requestId: meta.requestId,
+        requestTimestamp: meta.requestTimestamp,
+        timeDelta: meta.timeDelta,
+        ip: req.ip,
+        method: req.method,
+        url: req.url,
+        hostname: req.hostname,
+        headers: req.headers,
+      },
+    }, `Request with ID ${meta.requestId} received`);
+
     req.meta = meta;
     reply.header('X-Request-Id', meta.requestId);
     reply.header('X-Timestamp', meta.requestTimestamp);

@@ -11,14 +11,14 @@ const STORY_FETCH_LOOP_DELAY = dayjs.duration(1, 'm').asMilliseconds();
 let runningFetchLoop = false;
 
 async function startStoryFetchLoop() {
-  logger.info('Starting fetch loop...')
+  logger.info('Starting fetch loop...');
 
   runningFetchLoop = true;
   while (runningFetchLoop) {
     for (const storyType of Object.values(StorySortType) as StorySortType[]) {
       const timeUntilFetch = await ItemFetchService.getTimeUntilNextFetch(db, storyType);
       if (timeUntilFetch > 0) {
-        logger.info(`Fetching ${storyType} stories in ${timeUntilFetch.toFixed(2)}m...`)
+        logger.info(`Fetching ${storyType} stories in ${timeUntilFetch.toFixed(2)}m...`);
         continue;
       }
 
@@ -37,7 +37,7 @@ async function startStoryFetchLoop() {
         logger.info(stories.map(s => s.title), `Fetched ${stories.length} ${storyType} stories and ${totalItems} items in ${Date.now() - then}ms`);
         // await fs.writeFile(`${storyType}.json`, JSON.stringify(stories, null, 2))
 
-        await ItemFetchService.finishFetchSchedule(db, storyType, totalItems)
+        await ItemFetchService.finishFetchSchedule(db, storyType, totalItems);
       } catch (err) {
         logger.error(err, `Failed to fetch ${storyType} stories... Trying again later`);
       }
@@ -48,11 +48,11 @@ async function startStoryFetchLoop() {
 }
 
 async function stopFetchLoop() {
-  logger.info('Stopping fetch loop...')
+  logger.info('Stopping fetch loop...');
   runningFetchLoop = false;
 }
 
 export const StoryFetchService = {
   startStoryFetchLoop,
-  stopFetchLoop
+  stopFetchLoop,
 };
