@@ -1,7 +1,7 @@
-import axios from 'axios';
-import axiosRetry from 'axios-retry';
 import dayjs from 'dayjs';
 import { Knex } from 'knex';
+
+import { Pool } from 'undici';
 import { FetchUrls, StorySortType } from '~/constants/story-sort-type';
 import logger from '~/logging/logger';
 import { ItemPersistService } from '~/services/item-persist.service';
@@ -34,32 +34,38 @@ export interface HackerNewsItemWithKids extends Omit<HackerNewsItem, 'kids'> {
   kids: HackerNewsItemWithKids[];
 }
 
-const axiosClient = axios.create({
-  baseURL: 'https://hacker-news.firebaseio.com/v0',
-  timeout: 10000,
-});
-
-axiosRetry(axiosClient, {
-  retries: 3,
-  retryDelay: (retryCount) => {
-    return 200 * 2 ** (retryCount - 1);
-  },
-  shouldResetTimeout: true,
+const pool = new Pool('https://hacker-news.firebaseio.com', {
+  allowH2: true,
+  keepAliveTimeout: 30000,
+  pipelining: 10,
+  connections: 50,
+  headersTimeout: 10000,
+  bodyTimeout: 10000,
 });
 
 const limit = pLimit(250);
 const limitComments = pLimit(500);
 
 async function fetchStoryIds(storyFetchUrl: keyof typeof FetchUrls): Promise<number[]> {
-  return await axiosClient.get(FetchUrls[storyFetchUrl]).then(({ data }) => data);
+  return await pool.request({
+    method: 'GET',
+    path: `/v0/${FetchUrls[storyFetchUrl]}`,
+  }).then((response) => response.body.json()) as number[];
 }
 
-async function fetchItemById(itemId: number) {
-  return await axiosClient.get(`/item/${itemId}.json`).then(({ data }) => data);
+async function fetchItemById(itemId: number): Promise<HackerNewsItem> {
+  return await pool.request({
+    method: 'GET',
+    path: `/v0/item/${itemId}.json`,
+    throwOnError: true,
+  }).then((response) => response.body.json()) as HackerNewsItem;
 }
 
 async function fetchUserById(userId: string) {
-  return await axiosClient.get(`/user/${userId}.json`).then(({ data }) => data);
+  return await pool.request({
+    method: 'GET',
+    path: `/v0/user/${userId}.json`,
+  }).then((response) => response.body.json()) as HackerNewsUser;
 }
 
 async function fetchItemsRecursivelyThree(storyId: number): Promise<any> {

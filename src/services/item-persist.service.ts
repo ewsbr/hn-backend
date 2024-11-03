@@ -14,12 +14,12 @@ class ItemPersistService {
   #storyIdMap: Map<number, number> = new Map();
   #commentIdMap: Map<number, number> = new Map();
 
-  constructor (
+  constructor(
     private userMap: Map<string, number>,
   ) {}
 
   async #persistStories(stories: HackerNewsItemWithKids[], storyType: ItemType) {
-    const insertedStories = await StoryService.upsertStories(db, stories.map((item) => ({
+    const storiesToInsert = stories.map((item) => ({
       hnId: item.id,
       title: item.title!,
       url: item.url!,
@@ -32,12 +32,20 @@ class ItemPersistService {
       createdAt: dayjs.utc(item.time * 1000).toDate(),
       updatedAt: db.fn.now(),
       deletedAt: item.deleted ? db.fn.now() : null,
-    })));
-    insertedStories.forEach((story) => this.#storyIdMap.set(story.hnId, story.id));
+    }));
+
+    const batches = _.chunk(storiesToInsert, 1000);
+    const results = await Promise.all(
+      batches.map((batch) => StoryService.upsertStories(db, batch)),
+    );
+
+    for (const result of results) {
+      result.forEach((story) => this.#storyIdMap.set(story.hnId, story.id));
+    }
   }
 
   async #persistComments(comments: HackerNewsItemWithKids[]) {
-    const insertedComments = await CommentService.upsertComments(db, comments.map((item, i) => {
+    const commentsToInsert = comments.map((item, i) => {
       let storyId: QueryBuilder | number | undefined = this.#storyIdMap.get(this.#parentMap.get(item.id)!);
       if (storyId == null) {
         storyId = db.select('id').from('story').where('hn_id', this.#parentMap.get(item.id)!).first();
@@ -54,9 +62,17 @@ class ItemPersistService {
         updated_at: db.fn.now(),
         deleted_at: item.deleted ? db.fn.now() : null,
         order: i,
-      }
-    }));
-    insertedComments.forEach((comment) => this.#commentIdMap.set(comment.hnId, comment.id));
+      };
+    });
+
+    const batches = _.chunk(commentsToInsert, 1000);
+    const results = await Promise.all(
+      batches.map((batch) => CommentService.upsertComments(db, batch)),
+    );
+
+    for (const result of results) {
+      result.forEach((comment) => this.#commentIdMap.set(comment.hnId, comment.id));
+    }
   }
 
   async #persistPollOpt(pollOpts: HackerNewsItemWithKids[]) {
@@ -75,7 +91,7 @@ class ItemPersistService {
       } else if (type === 'poll') {
         await this.#persistStories(items, ItemType.POLL);
       } else if (type === 'pollopt') {
-        logger.info('Skipping pollopt')
+        logger.info('Skipping pollopt');
       } else if (type === 'comment') {
         await this.#persistComments(items);
       }
@@ -90,7 +106,7 @@ class ItemPersistService {
       for (const item of validItems) {
         if ((item.kids?.length ?? 0) === 0) continue;
         item.kids.forEach(
-          (kid) => this.#parentMap.set(kid.id, this.#parentMap.get(item.id) ?? item.id)
+          (kid) => this.#parentMap.set(kid.id, this.#parentMap.get(item.id) ?? item.id),
         );
       }
 
@@ -100,5 +116,5 @@ class ItemPersistService {
 }
 
 export {
-  ItemPersistService
-}
+  ItemPersistService,
+};
