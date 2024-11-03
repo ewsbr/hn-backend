@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import { Knex } from 'knex';
 
-import { Pool } from 'undici';
+import { Agent, Pool, RetryAgent, setGlobalDispatcher } from 'undici';
 import { FetchUrls, StorySortType } from '~/constants/story-sort-type';
 import logger from '~/logging/logger';
 import { ItemPersistService } from '~/services/item-persist.service';
@@ -34,37 +34,48 @@ export interface HackerNewsItemWithKids extends Omit<HackerNewsItem, 'kids'> {
   kids: HackerNewsItemWithKids[];
 }
 
-const pool = new Pool('https://hacker-news.firebaseio.com', {
+const agent = new RetryAgent(new Agent({
   allowH2: true,
   keepAliveTimeout: 30000,
   pipelining: 10,
   connections: 50,
   headersTimeout: 10000,
   bodyTimeout: 10000,
-});
+}), {
+  maxRetries: 2,
+  minTimeout: 200,
+  maxTimeout: 2000,
+})
+setGlobalDispatcher(agent)
+// const pool = new Pool('https://hacker-news.firebaseio.com');
 
 const limit = pLimit(250);
 const limitComments = pLimit(500);
 
 async function fetchStoryIds(storyFetchUrl: keyof typeof FetchUrls): Promise<number[]> {
-  return await pool.request({
+  return await agent.request({
     method: 'GET',
+    origin: 'https://hacker-news.firebaseio.com',
     path: `/v0/${FetchUrls[storyFetchUrl]}`,
+    throwOnError: true,
   }).then((response) => response.body.json()) as number[];
 }
 
 async function fetchItemById(itemId: number): Promise<HackerNewsItem> {
-  return await pool.request({
+  return await agent.request({
     method: 'GET',
+    origin: 'https://hacker-news.firebaseio.com',
     path: `/v0/item/${itemId}.json`,
     throwOnError: true,
   }).then((response) => response.body.json()) as HackerNewsItem;
 }
 
 async function fetchUserById(userId: string) {
-  return await pool.request({
+  return await agent.request({
     method: 'GET',
+    origin: 'https://hacker-news.firebaseio.com',
     path: `/v0/user/${userId}.json`,
+    throwOnError: true,
   }).then((response) => response.body.json()) as HackerNewsUser;
 }
 
@@ -93,7 +104,7 @@ async function fetchUsers(userIds: string[]): Promise<HackerNewsUser[]> {
   );
 
   if (rejected.length > 0) {
-    logger.warn(rejected.map(r => r.message), 'Failed to fetch some users');
+    logger.warn(rejected, 'Failed to fetch some users');
   }
 
   return fulfilled;
