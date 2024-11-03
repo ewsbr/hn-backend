@@ -7,9 +7,7 @@ import app from '~/app.js';
 import env from '~/utils/env.js';
 
 const fastify = Fastify({
-  logger: {
-    enabled: false,
-  },
+  logger: false,
   ajv: {
     customOptions: {
       coerceTypes: false,

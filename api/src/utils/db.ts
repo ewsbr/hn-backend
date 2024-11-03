@@ -1,13 +1,20 @@
-import knex from 'knex';
+import knex from 'knex'
+import postgres from 'postgres';
 import { deepCamelKeys, snakeCase } from 'string-ts';
 
 const db = knex({
-  client: 'pg',
+  client: 'pg-native',
   connection: {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
+    compress: true,
+    keepAlive: true,
+    pool: {
+      min: 2,
+      max: 50,
+    },
     statement_timeout: 10000,
     idle_in_transaction_session_timeout: 10000,
     query_timeout: 10000,
@@ -24,9 +31,21 @@ const db = knex({
   }
 });
 
+const db2 = postgres({
+  host: process.env.DB_HOST,
+  username: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_DATABASE,
+  port: 5432,
+  ssl: false,
+  idle_timeout: 10,
+  max: 20,
+})
+
 function close() {
+  db2.end()
   return db.destroy();
 }
 
 export default db;
-export { close };
+export { db2, close };
