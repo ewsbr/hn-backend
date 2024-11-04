@@ -40,7 +40,8 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
       })
     },
     handler: async function (req, reply) {
-      if (storyCache.has(req.params.id)) {
+      const hasSearch = req.query.search != null && req.query.search !== '';
+      if (storyCache.has(req.params.id) && hasSearch) {
         return storyCache.get(req.params.id);
       }
 
@@ -50,10 +51,10 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
       }
 
       let comments;
-      if (req.query.search != null && req.query.search !== '') {
+      if (hasSearch) {
         comments = await CommentService.searchCommentsByStoryId(db, {
           storyId: story.id,
-          search: req.query.search,
+          search: req.query.search!,
         });
       } else {
         comments = await CommentService.getCommentsByStoryId(db, {
