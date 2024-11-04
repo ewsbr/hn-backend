@@ -1,9 +1,8 @@
 import knex from 'knex'
-import postgres from 'postgres';
 import { deepCamelKeys, snakeCase } from 'string-ts';
 
 const db = knex({
-  client: 'pg-native',
+  client: 'pg',
   connection: {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -31,21 +30,9 @@ const db = knex({
   }
 });
 
-const db2 = postgres({
-  host: process.env.DB_HOST,
-  username: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  port: 5432,
-  ssl: false,
-  idle_timeout: 10,
-  max: 20,
-})
-
 function close() {
-  db2.end()
   return db.destroy();
 }
 
 export default db;
-export { db2, close };
+export { close };

@@ -2,15 +2,18 @@ import { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { CommentsSortOrder } from '~/constants/comments-sort';
 import { StorySortType } from '~/constants/story-sort-type';
-import logger from '~/logging/logger';
 import cachePolicy from '~/plugins/cache-policy';
 import pagination from '~/plugins/pagination';
 import { CommentService } from '~/services/comment.service';
 import { StoryService } from '~/services/story.service';
 import { HttpErrors } from '~/utils/custom-errors';
 import db from '~/utils/db';
+import { LRUCache } from 'lru-cache'
 
-const cache = new Map<number, any>();
+const storyCache = new LRUCache<number, any>({
+  max: 2500,
+  ttl: 10 * 60 * 1000,
+});
 
 const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
   await fastify.register(pagination);
@@ -37,9 +40,9 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
       })
     },
     handler: async function (req, reply) {
-      // if (cache.has(req.params.id)) {
-      //   return cache.get(req.params.id);
-      // }
+      if (storyCache.has(req.params.id)) {
+        return storyCache.get(req.params.id);
+      }
 
       const story = await StoryService.getStoryByHnId(db, req.params.id);
       if (story == null) {
@@ -60,6 +63,10 @@ const plugin: FastifyPluginAsyncTypebox = async function (fastify, opts) {
         });
       }
 
+      storyCache.set(req.params.id, {
+        ...story,
+        kids: comments,
+      });
       return {
         ...story,
         kids: comments,
