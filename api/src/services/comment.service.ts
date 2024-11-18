@@ -1,5 +1,7 @@
-import { Knex } from 'knex';
+import { Insertable, sql } from 'kysely';
 import { CommentsSortOrder } from '~/constants/comments-sort';
+import { Comment } from '~/db/types'
+import { Database } from '~/db/db';
 
 const COMMENTS_SORT_MAP = {
   [CommentsSortOrder.DEFAULT]: ['order', 'asc'],
@@ -11,31 +13,32 @@ const COMMENTS_SORT_MAP = {
   [CommentsSortOrder.LEAST_REPLIES]: ['order', 'asc']
 } as const;
 
-function parentByHnId(trx: Knex, hnId: number) {
-  return trx('story').select('id').where('hn_id', hnId);
+function upsertComments(trx: Database, comments: Insertable<Comment>[]) {
+  return trx.insertInto('comment')
+    .values(comments)
+    .onConflict((oc) => oc
+      .column('hnId')
+      .doUpdateSet({
+        'text': (eb) => eb.ref('excluded.text'),
+        'createdAt': (eb) => eb.ref('excluded.createdAt'),
+        'deletedAt': (eb) => eb.ref('excluded.deletedAt'),
+        'updatedAt': sql`now()`,
+      })
+    )
+    .returning(['id', 'hnId'])
+    .execute();
 }
 
-function upsertComments(trx: Knex, comments: any[]) {
-  return trx('comment').insert(comments)
-    .returning(['id', 'hn_id'])
-    .onConflict(['hn_id'])
-    .merge();
-}
-
-async function getCommentsByStoryId(trx: Knex, opts: {
+async function getCommentsByStoryId(trx: Database, opts: {
   storyHnId: number,
   sortBy: CommentsSortOrder
   commentHnId?: number,
 }) {
   const { storyHnId, commentHnId, sortBy } = opts;
-
-  const values = [storyHnId];
-  if (commentHnId != null) {
-    values.push(commentHnId);
-  }
+  const commentSql = commentHnId == null ? sql`AND c.parent_id IS NULL` : sql`AND c.hn_id = ${commentHnId}`;
 
   const [sortColumn, direction] = COMMENTS_SORT_MAP[sortBy];
-  const comments = await trx.raw(`
+  const comments = await sql`
     WITH RECURSIVE cte_story_comments AS (
       (SELECT
         c.id,
@@ -50,10 +53,9 @@ async function getCommentsByStoryId(trx: Knex, opts: {
         c.order AS parent_order
         FROM comment c
         INNER JOIN "user" u ON u.id = c.user_id
-        WHERE c.story_id = ?
+        WHERE c.story_id = ${storyHnId}
         AND c.deleted_at IS NULL
-        ${commentHnId == null ? 'AND c.parent_id IS NULL' : ''}
-        ${commentHnId != null ? `AND c.hn_id = ?` : ''})
+        ${commentSql})
       UNION ALL
       SELECT 
         c.id,
@@ -72,8 +74,8 @@ async function getCommentsByStoryId(trx: Knex, opts: {
       WHERE c.deleted_at IS NULL)
     SELECT *
     FROM cte_story_comments
-    ORDER BY "depth" DESC, "${sortColumn}" ${direction}, "order"
-  `, values).then((result) => result.rows);
+    ORDER BY "depth" DESC, ${sql.ref(sortColumn)} ${sql.raw(direction)}, "order"
+  `.execute(trx).then((r) => r.rows as any[]);
 
   const commentMap = new Map<number, any>();
   for (const comment of comments) {
@@ -113,25 +115,26 @@ async function getCommentsByStoryId(trx: Knex, opts: {
   return nestedComments;
 }
 
-async function searchCommentsByStoryId(trx: Knex, opts: {
+async function searchCommentsByStoryId(trx: Database, opts: {
   storyId: number,
   search: string
 }) {
   const { storyId, search } = opts;
 
-  const comments = await trx('comment AS c')
-    .select(
+  const comments = await trx.selectFrom('comment as c')
+    .innerJoin('user as u', 'u.id', 'c.userId')
+    .select([
       'c.text',
-      'c.created_at',
-      'c.hn_id',
+      'c.createdAt',
+      'c.hnId',
       'u.karma',
       'u.username',
-    )
-    .innerJoin('user AS u', 'u.id', 'c.user_id')
-    .where('story_id', storyId)
-    .where('text', 'ilike', `%${search}%`)
-    .whereNull('deleted_at')
-    .orderBy('order')
+    ])
+    .where('c.storyId', '=', storyId)
+    .where('c.text', 'ilike', `%${search}%`)
+    .where('c.deletedAt', 'is', null)
+    .orderBy('c.order')
+    .execute();
 
   return comments.map((comment) => ({
     id: comment.hnId,
@@ -145,7 +148,6 @@ async function searchCommentsByStoryId(trx: Knex, opts: {
 }
 
 export const CommentService = {
-  parentByHnId,
   upsertComments,
   getCommentsByStoryId,
   searchCommentsByStoryId,

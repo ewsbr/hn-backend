@@ -7,7 +7,7 @@ import pagination from '~/plugins/pagination';
 import { CommentService } from '~/services/comment.service';
 import { StoryService } from '~/services/story.service';
 import { HttpErrors } from '~/utils/custom-errors';
-import db from '~/utils/db';
+import db from '~/db/db';
 import { LRUCache } from 'lru-cache'
 
 const storyCache = new LRUCache<number, any>({

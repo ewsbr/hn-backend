@@ -1,12 +1,12 @@
 import dayjs from 'dayjs';
-import { QueryBuilder } from 'knex';
+import { sql } from 'kysely';
 import _ from 'lodash';
 import { ItemType } from '~/constants/item-type';
+import db from '~/db/db';
 import logger from '~/logging/logger';
 import { CommentService } from '~/services/comment.service';
 import { HackerNewsItemWithKids } from '~/services/item-fetch.service';
 import { StoryService } from '~/services/story.service';
-import db from '~/utils/db';
 
 class ItemPersistService {
 
@@ -28,10 +28,9 @@ class ItemPersistService {
       score: item.score ?? 0,
       descendants: item.descendants ?? 0,
       userId: this.userMap.get(item.by)!,
-      storyType,
-      createdAt: dayjs.utc(item.time * 1000).toDate(),
-      updatedAt: db.fn.now(),
-      deletedAt: item.deleted ? db.fn.now() : null,
+      storyType: storyType as 'job' | 'story',
+      createdAt: dayjs.utc(item.time * 1000).toISOString(),
+      deletedAt: item.deleted ? dayjs().toISOString() : null
     }));
 
     const batches = _.chunk(storiesToInsert, 1000);
@@ -46,21 +45,15 @@ class ItemPersistService {
 
   async #persistComments(comments: HackerNewsItemWithKids[]) {
     const commentsToInsert = comments.map((item, i) => {
-      let storyId: QueryBuilder | number | undefined = this.#storyIdMap.get(this.#parentMap.get(item.id)!);
-      if (storyId == null) {
-        storyId = db.select('id').from('story').where('hn_id', this.#parentMap.get(item.id)!).first();
-        logger.warn([...this.#storyIdMap.entries()], `Story ID not found for comment ${item.id}, parent ${item.parent}, story ${this.#parentMap.get(item.id)}}`);
-      }
-
+      let storyId = this.#storyIdMap.get(this.#parentMap.get(item.id)!)!;
       return {
-        hn_id: item.id,
+        hnId: item.id,
         text: item.text ?? undefined,
-        parent_id: this.#commentIdMap.get(item.parent!) ?? null,
-        story_id: storyId,
-        user_id: this.userMap.get(item.by),
-        created_at: dayjs.utc(item.time * 1000),
-        updated_at: db.fn.now(),
-        deleted_at: item.deleted ? db.fn.now() : null,
+        parentId: this.#commentIdMap.get(item.parent!) ?? null,
+        storyId,
+        userId: this.userMap.get(item.by),
+        createdAt: dayjs.utc(item.time * 1000).toISOString(),
+        deletedAt: item.deleted ? dayjs().toISOString() : null,
         order: i,
       };
     });

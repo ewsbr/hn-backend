@@ -8,6 +8,7 @@ import env from '~/utils/env.js';
 
 const fastify = Fastify({
   logger: false,
+  disableRequestLogging: true,
   ajv: {
     customOptions: {
       coerceTypes: false,

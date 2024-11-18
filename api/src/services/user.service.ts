@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { Knex } from 'knex';
+import { sql } from 'kysely';
+import { Database } from '~/db/db';
 
 dayjs.extend(utc);
 
@@ -12,23 +13,27 @@ export interface HackerNewsUser {
   submitted: number[];
 }
 
-function userByAlias(trx: Knex, username: string) {
-  return trx('user').select('id').where('username', username);
-}
-
-function upsertUsers(trx: Knex, users: HackerNewsUser[]) {
-  return trx('user').insert(users.map(user => ({
-    username: user.id,
-    created_at: dayjs.utc(user.created * 1000).toDate(),
-    karma: user.karma,
-    about: user.about,
-  })))
+async function upsertUsers(trx: Database, users: HackerNewsUser[]) {
+  return await trx
+    .insertInto('user')
+    .values(users.map(user => ({
+      username: user.id,
+      createdAt: dayjs.utc(user.created * 1000).toDate(),
+      karma: user.karma,
+      about: user.about,
+    })))
+    .onConflict(oc => oc
+      .column('username')
+      .doUpdateSet({
+        createdAt: sql`excluded.created_at`,
+        karma: sql`excluded.karma`,
+        about: sql`excluded.about`,
+      }),
+    )
     .returning(['id', 'username'])
-    .onConflict(['username'])
-    .merge();
+    .execute();
 }
 
 export const UserService = {
-  userByAlias,
-  upsertUsers
-}
+  upsertUsers,
+};

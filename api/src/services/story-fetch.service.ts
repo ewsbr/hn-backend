@@ -4,7 +4,7 @@ import logger from '~/logging/logger';
 import { ItemFetchService } from '~/services/item-fetch.service';
 import { setTimeout } from 'timers/promises';
 import { TopStoriesService } from '~/services/top-stories.service';
-import db from '~/utils/db';
+import db from '~/db/db';
 
 const STORY_FETCH_LOOP_DELAY = dayjs.duration(1, 'm').asMilliseconds();
 
@@ -25,7 +25,7 @@ async function startStoryFetchLoop() {
       const then = Date.now();
 
       const ids = await ItemFetchService.fetchStoryIds(storyType);
-      await db.transaction(async trx => {
+      await db.transaction().execute(async trx => {
         await ItemFetchService.insertFetchSchedule(trx, storyType);
         await TopStoriesService.insertStories(trx, storyType, ids);
       });

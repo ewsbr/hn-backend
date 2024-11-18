@@ -1,13 +1,14 @@
 import dayjs from 'dayjs';
-import { Knex } from 'knex';
+import { sql } from 'kysely';
 
-import { Agent, Pool, RetryAgent, setGlobalDispatcher } from 'undici';
+import { Agent, RetryAgent, setGlobalDispatcher } from 'undici';
 import { FetchUrls, StorySortType } from '~/constants/story-sort-type';
+import { Database } from '~/db/db';
 import logger from '~/logging/logger';
 import { ItemPersistService } from '~/services/item-persist.service';
 import { HackerNewsUser, UserService } from '~/services/user.service';
-import db from '~/utils/db';
 import { allSettledPartitioned } from '~/utils/promise';
+import db from '~/db/db';
 import pLimit from '~/utils/promise-limit';
 
 const FETCH_INTERVAL_MINUTES = 30;
@@ -45,8 +46,8 @@ const agent = new RetryAgent(new Agent({
   maxRetries: 2,
   minTimeout: 200,
   maxTimeout: 2000,
-})
-setGlobalDispatcher(agent)
+});
+setGlobalDispatcher(agent);
 // const pool = new Pool('https://hacker-news.firebaseio.com');
 
 const limit = pLimit(250);
@@ -165,12 +166,13 @@ async function fetchStoriesWithCommentsById(storyIds: number[]) {
   };
 }
 
-async function getTimeUntilNextFetch(trx: Knex, type: StorySortType): Promise<number> {
-  const lastSchedule = await trx('fetch_schedule')
-    .select('created_at', 'finished_at')
-    .where('type', type)
-    .orderBy('created_at', 'desc')
-    .first();
+async function getTimeUntilNextFetch(trx: Database, type: StorySortType): Promise<number> {
+  const lastSchedule = await trx.selectFrom('fetchSchedule')
+    .select(['createdAt', 'finishedAt'])
+    .where('type', '=', type)
+    .orderBy('createdAt', 'desc')
+    .limit(1)
+    .executeTakeFirst();
 
   if (lastSchedule == null) {
     return 0;
@@ -184,20 +186,24 @@ async function getTimeUntilNextFetch(trx: Knex, type: StorySortType): Promise<nu
   return Math.max(0, FETCH_INTERVAL_MINUTES - diff);
 }
 
-async function insertFetchSchedule(trx: Knex, type: StorySortType) {
-  return trx('fetch_schedule').insert({
-    type,
-  }).onConflict().ignore();
+async function insertFetchSchedule(trx: Database, type: StorySortType) {
+  return trx.insertInto('fetchSchedule')
+    .values({
+      type,
+    })
+    .onConflict((oc) => oc.doNothing())
+    .execute();
 }
 
-async function finishFetchSchedule(trx: Knex, type: StorySortType, totalItems: number) {
-  return trx('fetch_schedule')
-    .where('type', type)
-    .andWhere('finished_at', null)
-    .update({
-      totalItems: totalItems,
-      finishedAt: db.fn.now(),
-    });
+async function finishFetchSchedule(trx: Database, type: StorySortType, totalItems: number) {
+  return trx.updateTable('fetchSchedule')
+    .set({
+      totalItems,
+      finishedAt: sql`now()`,
+    })
+    .where('type', '=', type)
+    .where('finishedAt', 'is', null)
+    .execute();
 }
 
 export const ItemFetchService = {
