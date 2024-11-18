@@ -10,7 +10,7 @@ function getStories(trx: Database, sortType: StorySortType, limit: number, offse
     .select(['s.hnId as id', 'u.username as by', 's.url', 's.title', 's.score', 's.descendants', 's.createdAt as time'])
     .where('s.dead', '=', false)
     .where('ts.type', '=', sortType)
-    .where('s.deletedAt', 'is not', null)
+    .where('s.deletedAt', 'is', null)
     .orderBy('ts.order')
     .limit(limit).offset(offset)
     .execute();
